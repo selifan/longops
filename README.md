@@ -8,6 +8,8 @@ And ini_set('max_execution_time',6000) doesn't help, because your ISP won't allo
 Additionally you can get the real progress bar of the whole work (not just animated gif) and get a "red button" for stopping it.
 All you have to do is rewrite your "long" function so it can resume the job exactly on the point where it was "paused" in previous run. And it should check if "user asked cancel", perform cleanup operation and pass control to the "abortProcess()" class method.
 
+![Demo process screenshot](screenshot.png)
+
 Detailed documentation can be found in the doc folder :
 
 ["English documentation"](doc/longops.en.htm)

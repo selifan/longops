@@ -1,0 +1,414 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN">
+<html>
+<head>
+<meta charset="utf-8">
+<title>LongOps, long php operations</title>
+<link rel="stylesheet" type="text/css" href="helpstyles.css">
+</head>
+<body>
+
+<!-- DOC BEGIN -->
+
+<h1>PHP LongOps</h1>
+
+If you use "virtual server" hosting for your sites, then you know the problem.
+It's name "max_execution_time". Usualy this means "30 seconds for your PHP code", no more.
+And ini_set('max_execution_time',6000) doesn't help, because your ISP won't allow it. So if you want to perform some long operation, like making non-standard data backups or import/export really big data from/to file, you have a problem.
+
+<br /><br />
+<b>LongOps</b> is a helper class that allows you "split" your long-lasting operation to smaller "chunks" and perform the job in "step by step" manner, so every "step" never exceeds php execution limit time.
+Additionally you can get the real progress bar of the whole work (not just animated gif) and have a "red button" for stopping it.
+All you have to do is rewrite your "long" function so it can resume the job exactly on the point where it was "paused" in previous run. And it should check if "user asked cancel", perform cleanup operation and pass control to the "abortProcess()" class method.
+
+<h2>Installing and using</h2>
+
+Copy file <b>class.longops.php</b> to your folder, and make respective "include() | include_once | require() | require_once()" in yue "backend" PHP module.
+Frontend html code should contain javascript functions for sending AJAX requests to the server backend and handle responses from it.
+
+<br>
+Longops distributive has a ready-to-use js module that contains all needed functionality, implemented on jQuery and jQuery UI, <b>longops.jQuery.js</b>.
+
+<h3>Implementing backend functionality</h3>
+
+LongOps supports two different approaches : let's name them "procedural" and "OOP-manner".
+
+<h4>Procedural approach</h4>
+
+Yo implement one procedure (not in any class) and pass it's name to a LongOps constructor.
+<br>Here are a examples and detailed info of how to rewrite your "long" process to a procedure that is compliant to LongOps.
+
+Backend module example
+<pre style="height:200px;overflow:auto">
+require_once('class.longops.php');
+
+session_start();
+
+$params = array_merge($_GET,$_POST);
+
+if(isset($params['longops_action'])) {
+    # 'maxtime': we give 2 seconds for one working session
+    $longop = new LongOps('myLongOperation', array('processid'=&gt;'LONGOPT_DEMO', 'maxtime'=&gt;2));
+    $longop-&gt;dispatch($params);
+}
+else die('Empty backend call (no longops_action passed) !');
+
+function myLongOperation($longoptObj, $opt=array()) {
+
+    if($longoptObj-&gt;isAborted()) {
+
+        # Here make your "Before Abort" cleanup (close/delete unfinished files, drop temp tables in DB etc.)
+        # After that you can call abortProcess();
+        $opt['message'] = 'Stopped by user !';
+        $longoptObj-&gt;abortProcess($opt);
+
+    }
+
+    if(empty($opt['lastItem'])) {
+        # We're on the beginning: Peform initial tasks (create output file, calculate items count to work with etc.)
+        $opt['lastItem'] = 0;
+        $opt['itemCount'] = 50;
+    }
+    else {
+        # We're going to resume from paused job:
+        # Re-open output file(s) and fseek to the saved position, restore other working parameters.
+    }
+
+    # Main working loop
+    while($opt['lastItem'] &lt; $opt['itemCount']) {
+        # our long action works here:
+
+        $opt['lastItem'] += 1;
+        usleep(500000); # 0.5 sec delay simulates loong job...
+
+        if($longoptObj-&gt;isTimedOut($opt)) {
+            # here You have to close output file, to reopen it in next work-session for appending - fopen(fname,'a')
+            $opt['message'] = 'Processed:'.$opt['lastItem'].' of '.$opt['itemCount'] . ' items';
+            $longoptObj-&gt;pauseProcess($opt); # will exit($response);
+        }
+    }
+
+    # Here is the place for "final" cleanups, when the "long job" successfully finished.
+
+    $opt['message'] = 'Success, handled items: '.$opt['lastItem'];
+    return $opt;
+}
+</pre>
+
+Depending on passed parameters, your function will start long process, resume it after last break,
+and inside a main working loop , periodically check if "one session" time limit reached.
+
+<br><br>
+It must receive two parameters:
+<ul>
+  <li> first is a class LongOps reference object. You'll need it to pass control</li>
+  <li>Second is an associative array with all parameters received from clientside,
+    plus 'lastItem' element that stores last handled item at previous work session.</li>
+</ul>
+
+Here is the structure of your function:
+<ol>
+  <li>First you have to check if client requested "Cancel" for the operation:<br>
+  <pre style="width:600px; overflow:auto">
+    if($longoptObj-&gt;isAborted()) {
+        # Here make your "Before Abort" cleanup (close/delete unfinished files, drop temp tables in DB etc.)
+        # After that you can call abortProcess();
+        $opt['message'] = 'Stopped by user !'; // Place your "farewell" message to show in the client browser
+        $longoptObj-&gt;abortProcess($opt);
+    }
+
+  </pre>
+
+  </li>
+  <li>
+    Next You check if passed array contains non-zero 'lastItem' element. If not, it means You have to start new process.
+    If 'lastItem' is positive number, You restore the state of previously paused process to continue it.
+
+  <pre style="width:600px; overflow:auto">
+    if(empty($opt['lastItem'])) {
+        # We're on the beginning: Peform initial tasks (create output file, calculate items count to work with etc.)
+        $opt['lastItem'] = 0;
+        $opt['itemCount'] = 50;
+    }
+    else {
+        # We're going to resume from paused job:
+        # Re-open output file(s) and fseek to the saved position, restore other working parameters.
+    }
+  </pre>
+
+  Remember: in "start new job" case you have to calculate the whole items count and set it to $opts['itemCount'] element,
+  so <b>LongOps</b> will be able to compute percentage for progress bar.
+  For instance, if your job will handle all records from some SQL query, run "SELECT COUNT(1) FROM ... WHERE ..." with the same WHERE conditions
+  as in the real job and store the result into $opt['itemCount'].
+  <br>(Note: php has useful function mysql_affected_rows() that can return rows count for your last query)
+  </li>
+
+  <li> Now you start the main workung loop (from the beginning or from restored 'lastItem' position.
+    <br>After each handled item you call $longoptObj-&gt;isTimedOut($opt) to check if you have reached time limit for one work session.
+    If so, you make all needed actions to "save the game" to be able continue later.
+    And dont'forget to set valid $opt['lastItem'] value before passing control back to LongOps, (that is done by calling <b>payseProcess($opt)</b> method).
+
+  </li>
+  <li>
+    If your work session finished, you can prepare "final" message to show on clientside:
+    just put it in $opt['message'] value and return resulting $opt with "return" operator.
+  </li>
+
+</ol>
+
+<h4>OOP approach</h4>
+AS we all here use PHP and some of us know that PHP is OOP language, it's nice to use OOP approach for our long operations.
+
+<p>
+To do this, you write a class that extends abstract LongProcess defined in class.longops.php.
+That means you have to implement following functions in your class:
+<ul>
+  <li>start($params=array())</li>
+  <li>saveState()</li>
+  <li>resume($params=array())</li>
+  <li>action()</li>
+  <li>cancel()</li>
+  <li>finish()</li>
+</ul>
+
+Right after creating LongOps object you pass all control to it by calling dispatch() function. And you don't need to check if "time is over",
+as the working cycle (including monitoring elapsed time) performed inside LongOps.
+</p>
+
+<p><b>start($params)</b> : LongOps call this method from your class to make "initial" procedures:
+<br>for example, you're going to export some data to the text file. So you create this file in "start()" function, by calling <b>fopen(fname, 'w')</b>.
+It's your responsibility to create output file handler(s) and other "state data" - use the $_SESSION global var for that.
+Function <b>start()</b> must return associative array with "itemCount" value, that will be used to calculate progress bar "done percentage".
+If you forgive to return 'itemCount', LongOps will set value 100.
+
+<br>As an input parameters ($params) you receive all parameters that have come in GET/POST vars from the client.
+
+<br>And remember: YOU DON'S PERFORM ANY MAIN ACTIONS inside start() function. It's called only for "initialization" tasks!
+</p>
+
+<p><b>saveState()</b>: inside working loop, when LongOps reaches 'maxtime' seconds elapsed, it calls your function saveState from your class
+to save all needed data that describes current state, and right after that it sends to the clinet "checkpoint" message, containing percentage data
+for refreshing porgress bar, and optional message (where you can say user any info about progress, for example, amount of KB already saved to the file)
+
+</p>
+
+<p><b>resume($params)</b>: when client receives "checkpoint" rersponse from server, it redraws progress bar (or does somethin else...) and sends request "please continue" back to the server.
+When server (backend) receives it, it calls function resume() from the your class.
+Again, this function is not to perform real job, it's here only to restore last saved "checkpoint" (read output file handler from $_SESSION etc.)
+</p>
+
+<p><b>action()</b> - here you place your functionality (writing export data to the output fiule...). If you successfully restored state from last checkpoint,
+at resume() call, so you can continue from the point where you've stopped.
+Here you have a chance to stop the process earlier:
+<br>By default LongOps increments "lastItem" value each time it calls action(), and when it reaches "itemCount", LongOps finishes process.
+start() should return any non-empty non-string value, if you want to continue process.
+<br>
+But if for some reason you want "early finish", you can just return string value from the start() function.
+This string will be sent to the client as "farewell" message. If you don't want to send any text, just return boolean FALSE.
+
+<br>All these values (string or boolean FALSE value) will be treated by LongOps as "stop" command.
+Another way to finalize execution - returning associative array with at least one element - 'itemCount', that is equal or less than current
+'lastItem' value.
+</p>
+
+<p><b>cancel()</b> - LongOps call this function when it receives 'abort' request from client.
+Inside this function you should close all resources, files, clean temporary tables if any, delete unfinished outpout files if you want.
+If you return an array with 'message' element, text value from it will be passed to the client, so it can print "stopped farewell" text.
+</p>
+
+<p><b>finish()</b> - LongOps call it when 'lastItem' reaches or exceeds value of 'itemCount'.
+Here you shoul perform any "finalization" tasks, like freeing resources, cleaning $_SESSION from your long-process vars etc.
+If your function returns array with 'message' item, LognOps will send to the clint it the 'finished' response.
+</p>
+
+<h3>Implementing frontend</h3>
+
+Client browser is a "command center" for longOps. It sends to backend "start" command with all needed parameters, receives responses,
+sends next "resume" commands until process successfully finishes.
+If you want give a user ability to stop process, you have to implement respective interface element (button, clickable image etc.)
+In that case, if user presses "stop" button in the middle of the long process, browser should send "abort" command.
+<br><br>
+Below is a client-server request / response sequience:
+<ol>
+
+  <li>When user presses "start" button somewhere (i hope you have it in your HTML), client sends get|post request (preferably AJAX) with at least one field - 'longops_action' with string "start" value,
+    <br>for exxmple by using URL backend like "backend.php?longops_action=start"
+  </li>
+
+  <li>Server responses with a string in the form : "state|progress|[message text]" - three elements delimited by "|" char.
+    First element is "current state" word, it can be one of "working", "finished","aborted"
+  </li>
+
+  <li>If returned state is "working", process continues: client may refresh progress bar (if it exists), do somewhat eles, and immediately send
+  'resume' request:
+  <br>"backend.php?longops_action=resume"
+
+  <br><br>If state is 'finished' or 'aborted', client should stop the process. For example, if your client window was "blocked" by modal dialog,
+  to prevent other links and buttons, here you should remove this modal state or fully remove your "progress" dialog window.
+  </li>
+
+</ol>
+
+Here is frontend example. It's written with intensive use jQuery and of jQuery.UI, that make it very easy to create modal dialog window,
+progress bar in it, etc.
+<br>
+<pre style="height:200px;overflow:auto">
+...
+&lt;link rel="stylesheet" href="jquery-ui-custom.css" type="text/css" /&gt;
+
+&lt;script src="jquery.min.js"&gt;&lt;/script&gt;
+&lt;script src="jquery-ui-custom.min.js"&gt;&lt;/script&gt;
+&lt;script src="../src/longops.jQuery.js"&gt;&lt;/script&gt;
+
+&lt;script type="text/javascript"&gt;
+function startLongop() {
+    var options = {
+        backend: 'demo-backend.php'
+       ,title : 'Very long operation'
+       ,comment: 'Relax and enjoy the progress.'
+//       ,autoClose: 2 // when process finished, modal dialog will close in 2 seconds
+       ,dialogClass:'div_shade'
+       ,width:400
+       ,onSuccess: function() {
+           $('.result').append('Your long operation successfully finished&lt;br&gt;');
+       }
+    },
+    params = { useroperation:'backupme', userdate:'2013-09-16'};
+    longOps.start(params, options);
+}
+&lt;/script&gt;
+
+&lt;/head&gt;
+&lt;h2&gt;PHP LongOps (Long Operations) demonstration&lt;/h2&gt;
+&lt;br&gt;&lt;br&gt;&lt;br&gt;
+To start "long operation" emulation, Click the button below: &lt;br&gt;&lt;br&gt;
+&lt;input type="button" class="button" onclick="startLongop()" value="Start the demo" /&gt;
+&lt;br&gt;&lt;br&gt;
+&lt;div class="result" style="height:80px"&gt;&lt;/div&gt;
+...
+</pre>
+
+<h4>longOps.jQuery.js</h4>
+For the client part of the LongOps module longOps.jQuery.js was written. It has a single implemented object, <b>longOps</b>,
+that incapsulates almost all client functionality to communicate with LongOps PHP backend.
+
+As already mentioned, it uses jQuery and jQuery UI (minimal set of these modules included in distributive, see demo folder).
+With this object, you start the Long process by calling the start() function:
+
+<br><br>
+longOps.start(userparams, options);
+
+<br><br>
+As a result, modal dialog window will be created with non-filled progress bar, buttons for stopping/aborting process, and close window
+(button "Close" will be unresponsive untill process finished or aborted - it avoids "dropped" processes)
+
+<br><br>where userparams is a parameters specific to your task (for example serialized form data from your DOM),
+and options is a combination of following options:
+<pre>
+options = {
+    backend: 'mybackend_url.php'
+   ,title : 'Dialog title'
+   ,comment: 'some comment'
+   ,autoClose: 0
+   ,width:    300
+   ,btnStop:  'Cancel'
+   ,btnClose: 'Close'
+   ,btnStopping: 'Stopping...'
+   ,onSuccess: function() { ...}
+   ,onError: function() { ...}
+   ,onCancel: function() { ...}
+};
+</pre>
+Any element here is optional.
+<table>
+<tr>
+  <th>option</th>
+  <th>description</th>
+  <th>default value</th>
+</tr>
+
+<tr>
+  <td>backend</td>
+  <td>your backend URL</td>
+  <td>"./" (that will call default start page in the "current" folder</td>
+</tr>
+
+<tr>
+  <td>title</td>
+  <td>Title text for dialog window</td>
+  <td>"Long operation"</td>
+</tr>
+
+<tr>
+  <td>autoClose</td>
+  <td>if not zero, sets window auto-closing time (in seconds) after process successfully finishes</td>
+  <td>0 (dialog window remains on the screen, user has to click "Close" button to remove it</td>
+</tr>
+
+<tr>
+  <td>width</td>
+  <td>Dialog window width. See jQuery UI dialog() documentation for the same option</td>
+  <td>300</td>
+</tr>
+
+<tr>
+  <td>dialogClass</td>
+  <td>Aditional css class that will be added to the modal window (see jQuery UI dialog() documentation for the same option)</td>
+  <td>none</td>
+</tr>
+
+<tr>
+  <td>comment</td>
+  <td>Any text that will be printed over progress bar</td>
+  <td>none</td>
+</tr>
+
+<tr>
+  <td>btnStop</td>
+  <td>caption text for "stop/cancel" button</td>
+  <td>'Cancel'</td>
+</tr>
+
+<tr>
+  <td>btnClose</td>
+  <td>caption text for "CLose" button</td>
+  <td>'Close'</td>
+</tr>
+
+<tr>
+  <td>btnStopping</td>
+  <td>caption text, that comes to "stop" button right after user press it. Button becomes disabled</td>
+  <td>'Stopping...'</td>
+</tr>
+
+<tr>
+  <td>onSuccess</td>
+  <td>event function (or function name) that will fire when long process successfully finished.</td>
+  <td>null</td>
+</tr>
+
+<tr>
+  <td>onCancel</td>
+  <td>event function (or function name) that will fire when long process stopped by user, (and server really stopped it and sent 'aborted' response )</td>
+  <td>null</td>
+</tr>
+
+<tr>
+  <td>onError</td>
+  <td>event function (or function name) that will fire when long process was stopped with any error
+  <br>Any server response that is not 'working', 'finished' or 'aborted' treated as error.
+  In that case modal dialog window will be closed, and response message is alerted. (This is an additional help for debugging backend script)
+  </td>
+  <td>null</td>
+</tr>
+
+</table>
+
+
+<!-- DOC END -->
+
+<br><br><br>
+<div class="bottom">Copyright &copy; 2013 Alexander Selifonov, <a href="http://www.selifan.ru">www.selifan.ru</a>
+</div>
+
+</body>
+</html>

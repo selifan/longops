@@ -68,11 +68,7 @@ class LongOps {
         $_SESSION[$this->_processId]['checkpoint'] = array('lastItem'=>0, 'itemCount'=>0, 'message'=>'started');
         $_SESSION[$this->_processId]['userparams'] = $this->_params;
         $opts = array_merge($_SESSION[$this->_processId]['checkpoint'], $this->_params) ;
-        if(is_object($this->_handler) and is_a($this->_handler, 'LongProcess')) {
-            $result = $this->_handler->start($opts);
-        }
-        else
-            $result = $this->runCallback($opts); # if time is out, we won't come back here!
+        $result = $this->runCallback($opts); # if time is out, we won't come back here!
         # if operation ended before time is out, quit with "finished" response
         $this->endProcess($result);
     }
@@ -239,6 +235,9 @@ class LongOps {
                 $this->pauseProcess($result);
             }
             $_SESSION[$this->_processId]['checkpoint']['lastItem'] +=1;
+
+            if(isset($result['itemCount'])) $_SESSION[$this->_processId]['checkpoint']['itemCount'] = $result['itemCount'];
+
             if($_SESSION[$this->_processId]['checkpoint']['lastItem'] >= $_SESSION[$this->_processId]['checkpoint']['itemCount']
               or !empty($result['finished'])) break;
         }

@@ -26,17 +26,17 @@ longOps = {
    ,onCancel: null
    ,start: function (params, options) {
         longOps.b_aborting = longOps.b_canClose = false;
-        wndtitle = typeof(options.title)=='undefined' ? 'Long operation' : options.title;
-        comment = typeof(options.comment)=='undefined' ? '' : options.comment+'<br><br>';
-        dlgClass = typeof(options.dialogClass)=='undefined' ? '' : options.dialogClass;
+        var wndtitle = typeof(options.title)=='undefined' ? 'Long operation' : options.title;
+        var comment = typeof(options.comment)=='undefined' ? '' : options.comment+'<br><br>';
+        var dlgClass = typeof(options.dialogClass)=='undefined' ? '' : options.dialogClass;
         if(typeof(options.backend)=='string') this.backend = options.backend;
         if(typeof(options.btnStop)=='string') this.lng.btnStop = options.btnStop;
         if(typeof(options.btnClose)=='string') this.lng.btnClose = options.btnClose;
         if(typeof(options.btnStopping)=='string') this.lng.btnStopping = options.btnStopping;
         if(typeof(options.width)!='undefined') this.width = options.width;
-        if(typeof(options.width)!='onSuccess') this.onSuccess = options.onSuccess;
-        if(typeof(options.width)!='onError') this.onError = options.onError;
-        if(typeof(options.width)!='onCancel') this.onCancel = options.onCancel;
+        if(typeof(options.onSuccess)!='undefined') this.onSuccess = options.onSuccess;
+        if(typeof(options.onError)!='undefined') this.onError = options.onError;
+        if(typeof(options.onCancel)!='undefined') this.onCancel = options.onCancel;
 
         if(typeof(options.autoClose)!='undefined') this.autoClose = options.autoClose-0;
         var htm = "<div id='div_longop'>"+comment+"<div id='progress_bar' /><br><div id='longop_comment'>&nbsp;</div></div>";
